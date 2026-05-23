@@ -1,1 +1,237 @@
 # BTC-SIM
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>BTC Simulator Pro - Con Comisión</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#e5e5e5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:12px}
+.container{max-width:500px;margin:0 auto}
+.card{background:#141414;border:1px solid #222;border-radius:12px;padding:14px;margin-bottom:12px}
+h1{font-size:20px;margin-bottom:8px;color:#f7931a}
+h2{font-size:14px;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.price{font-size:32px;font-weight:700;font-family:monospace}
+.price.up{color:#00d395}.price.down{color:#ff4d4d}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#0f0f0f;padding:10px;border-radius:8px;border:1px solid #222}
+.stat-label{font-size:11px;color:#666;margin-bottom:4px}
+.stat-value{font-size:18px;font-weight:600;font-family:monospace}
+input,select,button{width:100%;padding:12px;background:#0f0f0f;border:1px solid #333;color:#fff;border-radius:8px;font-size:15px;margin-top:6px}
+button{background:#f7931a;color:#000;font-weight:700;cursor:pointer;border:none}
+button:disabled{opacity:.4}
+button.sell{background:#ff4d4d;color:#fff}
+.log{max-height:180px;overflow-y:auto;font-size:12px;font-family:monospace;background:#0a0a0a;padding:8px;border-radius:6px}
+.log-entry{padding:4px 0;border-bottom:1px solid #1a1a1a}
+.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:6px}
+.badge-buy{background:#00d39520;color:#00d395}.badge-sell{background:#ff4d4d20;color:#ff4d4d}
+.fee-info{font-size:11px;color:#f7931a;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>₿ BTC Simulator Pro</h1>
+    <div class="price" id="btcPrice">$--,---</div>
+    <div style="font-size:12px;color:#666;margin-top:4px">Comisión: <span style="color:#f7931a">0.10%</span> por operación</div>
+  </2div>
+
+  <div class="card">
+    <h2>Cuenta</h2>
+    <div class="grid">
+      <div class="stat"><div class="stat-label">Saldo USD</div><div class="stat-value" id="usdBalance">$10,000.00</div></div>
+      <div class="stat"><div class="stat-label">BTC</div><div class="stat-value" id="btcBalance">0.000000</div></div>
+      <div class="stat"><div class="stat-label">Valor Total</div><div class="stat-value" id="totalValue">$10,000.00</div></div>
+      <div class="stat"><div class="stat-label">PnL</div><div class="stat-value" id="pnl">$0.00</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Operar</h2>
+    <select id="orderType">
+      <option value="market">Mercado</option>
+      <option value="limit">Límite</option>
+    </select>
+    <input type="number" id="amount" placeholder="Cantidad en USD" value="100">
+    <div class="fee-info" id="feePreview">Comisión estimada: $0.10</div>
+    <input type="number" id="limitPrice" placeholder="Precio límite" style="display:none">
+    <div class="grid" style="margin-top:10px">
+      <button onclick="buy()">COMPRAR</button>
+      <button class="sell" onclick="sell()">VENDER</button>
+    </div>
+    <div style="margin-top:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label style="font-size:11px;color:#666">TP %</label><input type="number" id="tpPercent" value="2" step="0.1"></div>
+        <div><label style="font-size:11px;color:#666">SL %</label><input type="number" id="slPercent" value="1" step="0.1"></div>
+      </div>
+      <button onclick="setTPSL()" style="margin-top:8px;background:#222;color:#fff">Activar TP/SL</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Gráfico</h2>
+    <canvas id="chart" height="180"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Historial</h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+// ===== CONFIG SUPABASE - CAMBIA ESTO =====
+const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+const SUPABASE_KEY = 'TU-ANON-KEY';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// =========================================
+
+let state = {
+  usd: 10000,
+  btc: 0,
+  price: 0,
+  entryPrice: 0,
+  feeRate: 0.001, // 0.1%
+  history: [],
+  tp: null,
+  sl: null,
+  prices: []
+};
+
+const ctx = document.getElementById('chart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {labels:[], datasets:[{data:[], borderColor:'#f7931a', borderWidth:2, tension:0.3, pointRadius:0}]},
+  options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{ticks:{color:'#666'}}}}
+});
+
+async function fetchPrice(){
+  try{
+    const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+    const data = await res.json();
+    const newPrice = parseFloat(data.price);
+    const oldPrice = state.price;
+    state.price = newPrice;
+
+    document.getElementById('btcPrice').textContent = '$' + newPrice.toLocaleString('en-US',{minimumFractionDigits:2});
+    document.getElementById('btcPrice').className = 'price ' + (newPrice > oldPrice? 'up' : 'down');
+
+    state.prices.push(newPrice);
+    if(state.prices.length > 50) state.prices.shift();
+    chart.data.labels = state.prices.map((_,i)=>i);
+    chart.data.datasets[0].data = state.prices;
+    chart.update('none');
+
+    updateUI();
+    checkTPSL();
+  }catch(e){console.error(e)}
+}
+
+function updateUI(){
+  document.getElementById('usdBalance').textContent = '$' + state.usd.toFixed(2);
+  document.getElementById('btcBalance').textContent = state.btc.toFixed(6);
+  const total = state.usd + (state.btc * state.price);
+  document.getElementById('totalValue').textContent = '$' + total.toFixed(2);
+  const pnl = total - 10000;
+  const pnlEl = document.getElementById('pnl');
+  pnlEl.textContent = (pnl>=0?'+':'') + '$' + pnl.toFixed(2);
+  pnlEl.style.color = pnl>=0? '#00d395' : '#ff4d4d';
+
+  const amount = parseFloat(document.getElementById('amount').value) || 0;
+  const fee = amount * state.feeRate;
+  document.getElementById('feePreview').textContent = `Comisión estimada: $${fee.toFixed(2)} (recibes $${(amount-fee).toFixed(2)} en BTC)`;
+}
+
+async function buy(){
+  const usdAmount = parseFloat(document.getElementById('amount').value);
+  if(usdAmount > state.usd) return alert('Saldo insuficiente');
+
+  const fee = usdAmount * state.feeRate;
+  const netUsd = usdAmount - fee;
+  const btcBought = netUsd / state.price;
+
+  state.usd -= usdAmount;
+  state.btc += btcBought;
+  state.entryPrice = state.price;
+
+  log(`COMPRA ${btcBought.toFixed(6)} BTC @ $${state.price.toFixed(2)} | Fee: $${fee.toFixed(2)}`, 'buy');
+  await saveTrade('buy', btcBought, state.price, fee);
+  updateUI();
+}
+
+async function sell(){
+  const usdAmount = parseFloat(document.getElementById('amount').value);
+  const btcToSell = usdAmount / state.price;
+  if(btcToSell > state.btc) return alert('BTC insuficiente');
+
+  const grossUsd = btcToSell * state.price;
+  const fee = grossUsd * state.feeRate;
+  const netUsd = grossUsd - fee;
+
+  state.btc -= btcToSell;
+  state.usd += netUsd;
+
+  log(`VENTA ${btcToSell.toFixed(6)} BTC @ $${state.price.toFixed(2)} | Fee: $${fee.toFixed(2)}`, 'sell');
+  await saveTrade('sell', btcToSell, state.price, fee);
+  updateUI();
+}
+
+function setTPSL(){
+  const tp = parseFloat(document.getElementById('tpPercent').value);
+  const sl = parseFloat(document.getElementById('slPercent').value);
+  if(state.btc === 0) return alert('No tienes posición');
+  state.tp = state.entryPrice * (1 + tp/100);
+  state.sl = state.entryPrice * (1 - sl/100);
+  log(`TP/SL activado: TP $${state.tp.toFixed(2)} | SL $${state.sl.toFixed(2)}`, 'info');
+}
+
+function checkTPSL(){
+  if(state.btc > 0 && state.tp && state.price >= state.tp){
+    log(`🎯 TAKE PROFIT ejecutado @ $${state.price.toFixed(2)}`, 'sell');
+    sellAll(); state.tp = null; state.sl = null;
+  }
+  if(state.btc > 0 && state.sl && state.price <= state.sl){
+    log(`🛑 STOP LOSS ejecutado @ $${state.price.toFixed(2)}`, 'sell');
+    sellAll(); state.tp = null; state.sl = null;
+  }
+}
+
+function sellAll(){
+  const grossUsd = state.btc * state.price;
+  const fee = grossUsd * state.feeRate;
+  state.usd += grossUsd - fee;
+  state.btc = 0;
+  updateUI();
+}
+
+function log(msg, type){
+  const el = document.getElementById('log');
+  const time = new Date().toLocaleTimeString();
+  const badge = type==='buy'?'<span class="badge badge-buy">BUY</span>':type==='sell'?'<span class="badge badge-sell">SELL</span>':'';
+  el.innerHTML = `<div class="log-entry">[${time}] ${badge} ${msg}</div>` + el.innerHTML;
+  state.history.unshift({time, msg, type});
+}
+
+async function saveTrade(type, amount, price, fee){
+  if(SUPABASE_URL.includes('TU-PROYECTO')) return; // skip si no configurado
+  try{
+    await supabase.from('trades').insert([{type, amount, price, fee, timestamp: new Date()}]);
+  }catch(e){console.log('Supabase no configurado')}
+}
+
+document.getElementById('orderType').onchange = e => {
+  document.getElementById('limitPrice').style.display = e.target.value === 'limit'? 'block' : 'none';
+};
+document.getElementById('amount').oninput = updateUI;
+
+// Iniciar
+fetchPrice();
+setInterval(fetchPrice, 3000);
+updateUI();
+log('Simulador iniciado con comisión 0.1%', 'info');
+</script>
+</body>
+</html>
