@@ -1,471 +1,437 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- Playables SDK -->
-<script>// Playables SDK v1.0.0
-// Game lifecycle bridge: rAF-based game-ready detection + event communication
-(function() {
-  'use strict';
-
-  // Idempotency: skip if already initialized (e.g., server-side injection
-  // followed by client-side inject-javascript via the Bloks webview component).
-  if (window.playablesSDK) return;
-
-  var HANDLER_NAME = 'playablesGameEventHandler';
-  var ANDROID_BRIDGE_NAME = '_MetaPlayablesBridge';
-  var RAF_FRAME_THRESHOLD = 3;
-
-  var gameReadySent = false;
-  var firstInteractionSent = false;
-  var errorSent = false;
-  var frameCount = 0;
-  var originalRAF = window.requestAnimationFrame;
-
-  // --- Transport Layer ---
-
-  function hasIOSBridge() {
-    return !!(window.webkit &&
-              window.webkit.messageHandlers &&
-              window.webkit.messageHandlers[HANDLER_NAME]);
-  }
-
-  function hasAndroidBridge() {
-    return !!(window[ANDROID_BRIDGE_NAME] &&
-              typeof window[ANDROID_BRIDGE_NAME].postEvent === 'function');
-  }
-
-  function isInIframe() {
-    return !!(window.parent && window.parent !== window);
-  }
-
-  function sendEvent(eventName, payload) {
-    var message = {
-      type: eventName,
-      payload: payload || {},
-      timestamp: Date.now()
-    };
-
-    if (hasIOSBridge()) {
-      try {
-        window.webkit.messageHandlers[HANDLER_NAME].postMessage(message);
-      } catch (e) { /* ignore */ }
-      return;
-    }
-
-    if (hasAndroidBridge()) {
-    try {
-      var p = payload || {};
-      p.__secureToken = window.__fbAndroidBridgeAuthToken || '';
-      p.timestamp = message.timestamp;
-      window[ANDROID_BRIDGE_NAME].postEvent(
-        eventName,
-        JSON.stringify(p)
-      );
-    } catch (e) { /* ignore */ }
-    return;
-  }
-
-    if (isInIframe()) {
-      try {
-        window.parent.postMessage(message, '*');
-      } catch (e) { /* ignore */ }
-      return;
-    }
-  }
-
-  // --- rAF Game-Ready Detection ---
-
-  function onFrame() {
-    if (gameReadySent) return;
-
-    frameCount++;
-    if (frameCount >= RAF_FRAME_THRESHOLD) {
-      gameReadySent = true;
-      sendEvent('game_ready', {
-        frame_count: frameCount,
-        detected_at: Date.now()
-      });
-      return;
-    }
-
-    originalRAF.call(window, onFrame);
-  }
-
-  if (originalRAF) {
-    window.requestAnimationFrame = function(callback) {
-      if (!gameReadySent) {
-        return originalRAF.call(window, function(timestamp) {
-          frameCount++;
-          if (frameCount >= RAF_FRAME_THRESHOLD && !gameReadySent) {
-            gameReadySent = true;
-            sendEvent('game_ready', {
-              frame_count: frameCount,
-              detected_at: Date.now()
-            });
-          }
-          callback(timestamp);
-        });
-      }
-      return originalRAF.call(window, callback);
-    };
-  }
-
-  // --- First User Interaction Detection ---
-
-  function setupFirstInteractionDetection() {
-    var events = ['touchstart', 'mousedown', 'keydown'];
-
-    function onFirstInteraction() {
-      if (firstInteractionSent) return;
-      firstInteractionSent = true;
-      sendEvent('user_interaction_start', null);
-
-      for (var i = 0; i < events.length; i++) {
-        document.removeEventListener(events[i], onFirstInteraction, true);
-      }
-    }
-
-    for (var i = 0; i < events.length; i++) {
-      document.addEventListener(events[i], onFirstInteraction, true);
-    }
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', setupFirstInteractionDetection);
-  } else {
-    setupFirstInteractionDetection();
-  }
-
-  // --- Auto Error Capture ---
-
-  window.addEventListener('error', function(event) {
-    if (errorSent) return;
-    errorSent = true;
-    sendEvent('error', {
-      message: event.message || 'Unknown error',
-      source: event.filename || '',
-      lineno: event.lineno || 0,
-      colno: event.colno || 0,
-      auto_captured: true
-    });
-  });
-
-  window.addEventListener('unhandledrejection', function(event) {
-    if (errorSent) return;
-    errorSent = true;
-    var reason = event.reason;
-    sendEvent('error', {
-      message: (reason instanceof Error) ? reason.message : String(reason),
-      type: 'unhandled_promise_rejection',
-      auto_captured: true
-    });
-  });
-
-  // --- Public API ---
-
-  window.playablesSDK = {
-    complete: function(score) {
-      sendEvent('game_ended', {
-        score: score,
-        completed: true
-      });
-    },
-
-    error: function(message) {
-      if (errorSent) return;
-      errorSent = true;
-      sendEvent('error', {
-        message: message || 'Unknown error',
-        auto_captured: false
-      });
-    },
-
-    sendEvent: function(eventName, payload) {
-      if (!eventName || typeof eventName !== 'string') return;
-      sendEvent(eventName, payload);
-    }
-  };
-
-  // Kick off rAF detection in case no game code calls rAF immediately
-  if (originalRAF) {
-    originalRAF.call(window, onFrame);
-  }
-})();</script>
-<!-- PLAYABLE_TOUCH_PATCH_V1 --><script>
-(function() {
-  if (window.__playableTouchPatchInstalled) return;
-  window.__playableTouchPatchInstalled = true;
-  var origAdd = EventTarget.prototype.addEventListener;
-  var blockedTypes = { touchstart: 1, touchmove: 1, wheel: 1 };
-  EventTarget.prototype.addEventListener = function(type, listener, options) {
-    if (blockedTypes[type]) {
-      if (options === undefined || options === null) {
-        options = { passive: true };
-      } else if (typeof options === 'boolean') {
-        options = { capture: options, passive: true };
-      } else {
-        options = Object.assign({}, options, { passive: true });
-      }
-    }
-    return origAdd.call(this, type, listener, options);
-  };
-})();
-</script><script>window.Intl=window.Intl||{};Intl.t=function(s){return(Intl._locale&&Intl._locale[s])||s;};</script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BTC Simulator PRO — Supabase</title>
-<!--
--- create table simulator (id text primary key, data jsonb);
--- alter table simulator enable row level security;
--- create policy "allow anon" on simulator for all using (true) with check (true);
--->
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://s3.tradingview.com/tv.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>BTC Simulator PRO</title>
 <style>
-  * { font-family: 'Inter', sans-serif; }
-  .mono { font-family: 'JetBrains Mono', monospace; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+:root{--bg:#070a0f;--card:#11161f;--muted:#8b94a7;--text:#eef2f8;--green:#00c076;--red:#ff4d4f;--border:#1d2330;--accent:#3b82f6;--bg2:#0c111a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.app{max-width:520px;margin:0 auto;min-height:100vh}
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;position:sticky;top:0;background:rgba(7,10,15,.9);backdrop-filter:blur(12px);z-index:20;border-bottom:1px solid var(--border)}
+.logo{font-weight:900;letter-spacing:.6px;font-size:15px;display:flex;align-items:center;gap:6px}
+.logo span{background:linear-gradient(135deg,var(--accent),#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.price-box{text-align:right}
+#btc-price{font-size:20px;font-weight:800;line-height:1}
+#btc-change{font-size:11px;color:var(--muted);margin-top:2px}
+#btc-change.up{color:var(--green)}#btc-change.down{color:var(--red)}
+#tv_chart{height:400px;width:100%;background:#080b11;border-bottom:1px solid var(--border)}
+.indicators{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.indicators div{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 4px;text-align:center}
+.indicators span{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.indicators b{font-size:13px;font-weight:700}
+#signal{font-size:11px}
+#signal.bull,#signal.BULL,#signal.GOLDEN{color:var(--green)}
+#signal.bear,#signal.BEAR,#signal.DEATH{color:var(--red)}
+.card{margin:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
+.bal{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bal div{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center}
+.bal span{display:block;font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
+.bal b{font-size:14px;font-weight:700}
+.tabs{display:flex;gap:6px;margin-bottom:10px;background:var(--bg2);padding:4px;border-radius:10px;border:1px solid var(--border)}
+.tab{flex:1;padding:8px;border-radius:8px;background:transparent;border:none;color:var(--muted);font-weight:700;font-size:13px}
+.tab.active{background:var(--accent);color:#fff}
+.side-toggle{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.side{padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-weight:800;font-size:14px}
+.side.active.buy{background:var(--green);color:#00140c;border-color:var(--green)}
+.side.active.sell{background:var(--red);color:#fff;border-color:var(--red)}
+.input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:14px 12px;border-radius:12px;font-size:16px;outline:none;margin-bottom:8px}
+.input:focus{border-color:var(--accent)}
+.pct{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.pct button{padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;font-weight:600}
+.pct button:active{background:#1a2332}
+.label{font-size:11px;color:var(--muted);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.3px}
+.tpsl{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.tpsl input{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:14px;width:100%}
+.tpsl-row{display:flex;gap:6px;margin-top:6px;align-items:center}
+.tpsl-row button{flex:1;background:#1a2332;border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px;font-size:12px;font-weight:600}
+.tpsl-status{font-size:11px;color:var(--muted);margin-top:4px}
+.execute{width:100%;padding:16px;border:none;border-radius:14px;font-weight:900;font-size:16px;margin-top:12px;letter-spacing:.3px}
+.execute.buy{background:var(--green);color:#001409}
+.execute.sell{background:var(--red);color:#fff}
+.execute:disabled{opacity:.5}
+h3{margin:4px 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;align-items:center}
+.list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-size:12px}
+.row .l{display:flex;gap:8px;align-items:center}
+.row .r{text-align:right}
+.badge{padding:3px 6px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+.badge.buy{background:rgba(0,192,118,.15);color:var(--green);border:1px solid rgba(0,192,118,.3)}
+.badge.sell{background:rgba(255,77,79,.15);color:var(--red);border:1px solid rgba(255,77,79,.3)}
+.badge.limit{background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3)}
+.empty{padding:20px;text-align:center;color:var(--muted);font-size:12px}
+#loading{position:fixed;inset:0;background:rgba(7,10,15,.98);display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99;transition:opacity .3s}
+.spinner{width:40px;height:40px;border:3px solid #1d2330;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-txt{font-size:13px;color:var(--muted)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:6px}
+.status-dot.live{background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.footer{padding:24px;text-align:center;color:#4b5563;font-size:10px}
+button{cursor:pointer;user-select:none}
+button:active{transform:scale(.98)}
+.small{font-size:11px;color:var(--muted)}
 </style>
 </head>
-<body class="bg-[#0a0e14] text-slate-100 min-h-screen">
-  <header class="sticky top-0 z-40 backdrop-blur-xl bg-[#0a0e14]/80 border-b border-slate-800">
-    <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 flex items-center justify-center shadow-lg shadow-orange-500/20">
-          <span class="text-black font-bold text-xl">₿</span>
-        </div>
-        <div>
-          <div class="font-semibold leading-tight">BTC Simulator PRO</div>
-          <div class="text-[11px] text-slate-500 -mt-0.5">Supabase • Live Binance</div>
-        </div>
-      <div class="flex items-center gap-5 md:gap-8">
-        <div class="text-right">
-          <div class="text-[11px] text-slate-500 uppercase tracking-wide">BTC/USDT</div>
-          <div class="flex items-baseline gap-2">
-            <div id="price" class="text-[22px] md:text-2xl mono font-semibold">—</div>
-            <div id="change" class="text-xs mono px-1.5 py-0.5 rounded"></div>
-          </div>
-        </div>
-        <div class="hidden md:block w-px h-10 bg-slate-800"></div>
-        <div class="hidden sm:block text-right">
-          <div class="text-[11px] text-slate-500 uppercase tracking-wide">Equity</div>
-          <div id="equityHeader" class="mono font-semibold">$10,000.00</div>
-          <div id="pnlHeader" class="text-[11px] mono"></div>
-        </div>
-      </div>
-    </div>
-  </header>
+<body>
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="load-txt">Connecting to Binance...</div>
+</div>
 
-  <main class="max-w-[1600px] mx-auto p-3 md:p-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
-    <!-- LEFT -->
-    <div class="xl:col-span-2 space-y-4">
-      <div class="bg-[#111827]/60 border border-slate-800 rounded-2xl overflow-hidden">
-        <div id="tv_chart" class="h-[460px] md:h-[520px] w-full"></div>
-      </div>
-      
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div class="bg-[#111827]/60 border border-slate-800 rounded-2xl p-4">
-          <div class="flex items-center justify-between mb-1">
-            <div class="text-xs text-slate-400">RSI (14)</div>
-            <div id="rsiBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">NEUTRAL</div>
-          </div>
-          <div id="rsiValue" class="text-3xl mono">50.0</div>
-          <div class="mt-3 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div id="rsiBar" class="h-full w-[50%] bg-gradient-to-r from-emerald-500 to-amber-500 transition-all"></div>
-          </div>
-          <div class="flex justify-between text-[10px] text-slate-600 mt-1"><span>0</span><span>50</span><span>100</span></div>
-        </div>
-        
-        <div class="bg-[#111827]/60 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 mb-1">SMA 9 / 21</div>
-          <div class="flex items-baseline gap-3">
-            <div><span class="text-[11px] text-slate-500">9</span> <span id="sma9" class="mono text-lg">—</span></div>
-            <div><span class="text-[11px] text-slate-500">21</span> <span id="sma21" class="mono text-lg">—</span></div>
-          </div>
-          <div id="smaCross" class="text-xs mt-2 text-slate-400">Loading...</div>
-        </div>
-        
-        <div class="bg-[#111827]/60 border border-slate-800 rounded-2xl p-4">
-          <div class="text-xs text-slate-400 mb-1">Signal</div>
-          <div id="signalText" class="text-2xl font-semibold">WAIT</div>
-          <div id="signalSub" class="text-xs text-slate-500 mt-1">RSI + SMA confirmation</div>
-        </div>
+<div class="app">
+  <div class="header">
+    <div class="logo"><span class="status-dot" id="status-dot"></span>₿ <span>SIMULATOR PRO</span></div>
+    <div class="price-box">
+      <div id="btc-price">--</div>
+      <div id="btc-change">--</div>
+    </div>
+  </div>
+
+  <div id="tv_chart"></div>
+
+  <div class="indicators">
+    <div><span>RSI (14)</span><b id="rsi">--</b></div>
+    <div><span>SMA 9</span><b id="sma9">--</b></div>
+    <div><span>SMA 21</span><b id="sma21">--</b></div>
+    <div><span>Signal</span><b id="signal">--</b></div>
+  </div>
+
+  <div class="card">
+    <div class="bal">
+      <div><span>USDT</span><b id="bal-usdt">10,000</b></div>
+      <div><span>BTC</span><b id="bal-btc">0.0000</b></div>
+      <div><span>Equity</span><b id="equity">10,000</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" data-type="market">Market</button>
+      <button class="tab" data-type="limit">Limit</button>
+    </div>
+    
+    <div class="side-toggle">
+      <button id="btn-buy" class="side active buy">BUY</button>
+      <button id="btn-sell" class="side">SELL</button>
+    </div>
+
+    <div id="market-panel">
+      <div class="label" id="amount-label">Amount (USDT)</div>
+      <input id="amount" class="input" type="number" inputmode="decimal" placeholder="0.00">
+      <div class="pct">
+        <button data-p="0.25">25%</button>
+        <button data-p="0.5">50%</button>
+        <button data-p="0.75">75%</button>
+        <button data-p="1">100%</button>
       </div>
     </div>
 
-    <!-- RIGHT TRADE -->
-    <div class="bg-[#111827]/60 border border-slate-800 rounded-2xl p-4 h-fit sticky top-[76px]">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-semibold">Trade</h2>
-        <div class="text-[11px] px-2 py-1 rounded bg-slate-800 text-slate-400">COMMISSION 0.1%</div>
-      </div>
-
-      <div class="grid grid-cols-2 bg-[#0a0e14] p-1 rounded-xl border border-slate-800 mb-3">
-        <button id="tabMarket" class="py-2 rounded-lg text-sm font-medium bg-slate-800">Market</button>
-        <button id="tabLimit" class="py-2 rounded-lg text-sm font-medium text-slate-400">Limit</button>
-      </div>
-
-      <div class="grid grid-cols-2 gap-2 mb-4">
-        <button id="btnLong" class="py-2.5 rounded-xl font-semibold bg-emerald-600 hover:bg-emerald-500 transition">LONG</button>
-        <button id="btnShort" class="py-2.5 rounded-xl font-semibold bg-[#1e293b] text-slate-300 hover:bg-slate-700 transition">SHORT</button>
-      </div>
-
-      <div id="limitWrap" class="hidden mb-3">
-        <label class="text-xs text-slate-400">Limit Price (USDT)</label>
-        <input id="limitPrice" type="number" placeholder="0.00" class="w-full mt-1 bg-[#0a0e14] border border-slate-800 rounded-xl px-3 py-2.5 mono outline-none focus:border-slate-600">
-      </div>
-
-      <div class="mb-3">
-        <div class="flex justify-between">
-          <label class="text-xs text-slate-400">Size (BTC)</label>
-          <span class="text-[11px] text-slate-500">≈ <span id="sizeUsdt" class="mono">$0</span></span>
-        </div>
-        <input id="amount" type="number" step="0.00001" placeholder="0.001" class="w-full mt-1 bg-[#0a0e14] border border-slate-800 rounded-xl px-3 py-2.5 mono outline-none focus:border-slate-600">
-        <div class="grid grid-cols-4 gap-1.5 mt-2">
-          <button data-pct="25" class="pct py-1.5 rounded-lg bg-[#0a0e14] border border-slate-800 text-xs hover:bg-slate-800">25%</button>
-          <button data-pct="50" class="pct py-1.5 rounded-lg bg-[#0a0e14] border border-slate-800 text-xs hover:bg-slate-800">50%</button>
-          <button data-pct="75" class="pct py-1.5 rounded-lg bg-[#0a0e14] border border-slate-800 text-xs hover:bg-slate-800">75%</button>
-          <button data-pct="100" class="pct py-1.5 rounded-lg bg-[#0a0e14] border border-slate-800 text-xs hover:bg-slate-800">100%</button>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label class="text-xs text-slate-400">Take Profit</label>
-          <input id="tp" type="number" placeholder="Optional" class="w-full mt-1 bg-[#0a0e14] border border-slate-800 rounded-xl px-3 py-2 mono text-sm outline-none focus:border-emerald-700">
-        </div>
-        <div>
-          <label class="text-xs text-slate-400">Stop Loss</label>
-          <input id="sl" type="number" placeholder="Optional" class="w-full mt-1 bg-[#0a0e14] border border-slate-800 rounded-xl px-3 py-2 mono text-sm outline-none focus:border-red-700">
-        </div>
-      </div>
-
-      <div class="bg-[#0a0e14] border border-slate-800 rounded-xl p-3 text-[12px] space-y-1.5 mb-4">
-        <div class="flex justify-between"><span class="text-slate-500">Available</span><span id="avail" class="mono">$10,000.00</span></div>
-        <div class="flex justify-between"><span class="text-slate-500">Cost</span><span id="previewCost" class="mono">$0.00</span></div>
-        <div class="flex justify-between"><span class="text-slate-500">Fee</span><span id="previewFee" class="mono">$0.00</span></div>
-        <div class="flex justify-between pt-1 border-t border-slate-800"><span class="text-slate-400">Total</span><span id="previewTotal" class="mono font-semibold">$0.00</span></div>
-      </div>
-
-      <button id="placeOrder" class="w-full py-3 rounded-xl font-semibold bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50 disabled:cursor-not-allowed">Open LONG</button>
-      <p class="text-[10px] text-slate-600 text-center mt-2">Paper trading only. Data persisted in Supabase.</p>
-    </div>
-
-    <!-- BOTTOM TABLES -->
-    <div class="xl:col-span-3 bg-[#111827]/60 border border-slate-800 rounded-2xl overflow-hidden">
-      <div class="flex items-center border-b border-slate-800 overflow-x-auto">
-        <button data-tab="positions" class="tab px-4 py-3 text-sm font-medium border-b-2 border-emerald-500">Positions <span id="posCount" class="ml-1 text-xs text-slate-400">(0)</span></button>
-        <button data-tab="orders" class="tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-400">Orders <span id="ordCount" class="ml-1 text-xs">(0)</span></button>
-        <button data-tab="history" class="tab px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-400">History</button>
-        <div class="ml-auto pr-3 flex items-center gap-3">
-          <div class="text-[11px] text-slate-500 hidden sm:block">Balance: <span id="balFooter" class="mono text-slate-300">$10,000</span></div>
-          <button id="resetBtn" class="text-[11px] px-2.5 py-1 rounded bg-[#0a0e14] border border-slate-800 hover:border-red-800 hover:text-red-400">Reset</button>
-        </div>
-      </div>
-
-      <div id="panel-positions" class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="text-[11px] text-slate-500 uppercase tracking-wider border-b border-slate-800">
-            <tr class="text-left">
-              <th class="px-4 py-2.5">Side</th><th class="px-4 py-2.5">Size</th><th class="px-4 py-2.5">Entry</th><th class="px-4 py-2.5">Mark</th><th class="px-4 py-2.5">PnL</th><th class="px-4 py-2.5">TP/SL</th><th class="px-4 py-2.5 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody id="positionsBody" class="divide-y divide-slate-800/50"></tbody>
-        </table>
-        <div id="posEmpty" class="py-12 text-center text-slate-500 text-sm">No open positions</div>
-      </div>
-
-      <div id="panel-orders" class="hidden overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="text-[11px] text-slate-500 uppercase tracking-wider border-b border-slate-800">
-            <tr class="text-left">
-              <th class="px-4 py-2.5">Side</th><th class="px-4 py-2.5">Type</th><th class="px-4 py-2.5">Price</th><th class="px-4 py-2.5">Amount</th><th class="px-4 py-2.5">TP/SL</th><th class="px-4 py-2.5 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody id="ordersBody" class="divide-y divide-slate-800/50"></tbody>
-        </table>
-        <div id="ordEmpty" class="py-12 text-center text-slate-500 text-sm">No open orders</div>
-      </div>
-
-      <div id="panel-history" class="hidden overflow-x-auto max-h-[320px] overflow-y-auto">
-        <table class="w-full text-sm">
-          <thead class="text-[11px] text-slate-500 uppercase tracking-wider border-b border-slate-800 sticky top-0 bg-[#111827]">
-            <tr class="text-left">
-              <th class="px-4 py-2.5">Time</th><th class="px-4 py-2.5">Side</th><th class="px-4 py-2.5">Entry → Exit</th><th class="px-4 py-2.5">Amount</th><th class="px-4 py-2.5">PnL</th><th class="px-4 py-2.5">Reason</th>
-            </tr>
-          </thead>
-          <tbody id="historyBody" class="divide-y divide-slate-800/50"></tbody>
-        </table>
-        <div id="histEmpty" class="py-12 text-center text-slate-500 text-sm">No history yet</div>
+    <div id="limit-panel" style="display:none">
+      <div class="label">Limit Price</div>
+      <input id="limit-price" class="input" type="number" inputmode="decimal" placeholder="Enter price">
+      <div class="label" id="amount-label2">Amount (USDT)</div>
+      <input id="amount2" class="input" type="number" inputmode="decimal" placeholder="0.00">
+      <div class="pct">
+        <button data-p="0.25">25%</button>
+        <button data-p="0.5">50%</button>
+        <button data-p="0.75">75%</button>
+        <button data-p="1">100%</button>
       </div>
     </div>
-  </main>
 
+    <div class="tpsl">
+      <input id="tp-input" type="number" inputmode="decimal" placeholder="Take Profit">
+      <input id="sl-input" type="number" inputmode="decimal" placeholder="Stop Loss">
+    </div>
+    <div class="tpsl-row">
+      <button id="set-tpsl">Set TP/SL</button>
+      <button id="clear-tpsl">Clear</button>
+    </div>
+    <div class="tpsl-status" id="tpsl-status">No TP/SL set</div>
+
+    <button id="execute" class="execute buy">BUY BTC</button>
+    <div class="small" style="text-align:center;margin-top:6px">Commission 0.1% • Data from Binance</div>
+  </div>
+
+  <div class="card">
+    <h3>Open Orders <span id="orders-count">0</span></h3>
+    <div id="orders-list" class="list"><div class="empty">No open orders</div></div>
+    
+    <h3 style="margin-top:16px">Recent Trades</h3>
+    <div id="trades-list" class="list"><div class="empty">No trades yet</div></div>
+  </div>
+
+  <div class="footer">BTC Simulator PRO • Mobile • Supabase persisted</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.43.4/dist/umd/supabase.min.js"></script>
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
+console.log('[BTC PRO] Init');
 const SUPABASE_URL = 'https://oiwkwnzdcsxqdflkynth.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pd2t3bnpkY3N4cWRmbGt5bnRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNjQ3MjcsImV4cCI6MjA5NDk0MDcyN30.sFRceS5xy01eqNASsECCPaf8XPDPrJRJ9TZkGLNPHNM';
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let balanceUSDT = 10000;
-let initialBalance = 10000;
-let positions = [];
-let orders = [];
-let history = [];
-let currentPrice = 0;
-let prevPrice = 0;
-let closes = [];
-let selectedSide = 'LONG';
-let orderType = 'market';
-let priceChange24h = 0;
+let state = {
+  balance: 10000,
+  btc: 0,
+  trades: [],
+  orders: [],
+  tp: null,
+  sl: null
+};
+let price = 0, prevPrice = 0, klines = [], loading = true, tradeSide = 'BUY', tradeType = 'market';
+let sma9Prev = null, sma21Prev = null, pollErrorCount = 0;
 
-const fmt = (n, d=2) => new Intl.NumberFormat('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}).format(n||0);
-const fmtPrice = p => p>1000 ? fmt(p,2) : fmt(p,4);
-const $ = id => document.getElementById(id);
+const fmt = (n, d=2) => Number(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmt4 = n => Number(n).toLocaleString('en-US', {minimumFractionDigits:4, maximumFractionDigits:8});
 
-async function loadState() {
-  try {
-    const { data, error } = await supabaseClient.from('simulator').select('data').eq('id','main').maybeSingle();
-    if (error) throw error;
-    if (!data) {
-      await setDefaults();
-      await saveState();
+async function loadState(){
+  console.log('[Supabase] Loading...');
+  try{
+    const { data, error } = await supabase.from('simulator').select('state').eq('id','main').single();
+    if(error && error.code !== 'PGRST116') throw error;
+    if(data && data.state){
+      state = {...state, ...data.state};
+      console.log('[Supabase] Loaded', state);
     } else {
-      const d = data.data || {};
-      balanceUSDT = d.balanceUSDT ?? 10000;
-      initialBalance = d.initialBalance ?? 10000;
-      positions = d.positions ?? [];
-      orders = d.orders ?? [];
-      history = d.history ?? [];
+      console.log('[Supabase] No data, creating...');
+      await saveState();
     }
-  } catch(e) {
-    console.error('loadState', e);
-    await setDefaults();
+  }catch(e){ console.error('[Supabase] Load error:', e); }
+  updateUI();
+}
+
+async function saveState(){
+  try{
+    const payload = { id:'main', state, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('simulator').upsert(payload);
+    if(error) throw error;
+    console.log('[Supabase] Saved');
+  }catch(e){ console.error('[Supabase] Save error:', e); }
+}
+
+function calcSMA(arr,p){ if(arr.length<p) return null; const s=arr.slice(-p); return s.reduce((a,b)=>a+b,0)/p; }
+function calcRSI(closes,period=14){
+  if(closes.length<period+1) return null;
+  let gains=0, losses=0;
+  for(let i=closes.length-period; i<closes.length; i++){
+    const diff=closes[i]-closes[i-1];
+    if(diff>=0) gains+=diff; else losses-=diff;
+  }
+  const avgG=gains/period, avgL=losses/period;
+  if(avgL===0) return 100;
+  const rs=avgG/avgL;
+  return 100 - (100/(1+rs));
+}
+
+async function fetchPrice(){
+  try{
+    const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    prevPrice = price;
+    price = parseFloat(d.price);
+    pollErrorCount = 0;
+    document.getElementById('status-dot').classList.add('live');
+  }catch(e){
+    console.error('[Fetch] Price error:', e);
+    pollErrorCount++;
+    document.getElementById('status-dot').classList.remove('live');
   }
 }
-async function setDefaults() {
-  balanceUSDT = 10000; initialBalance = 10000; positions=[]; orders=[]; history=[];
-}
-async function saveState() {
-  try {
-    await supabaseClient.from('simulator').upsert({ id:'main', data: { balanceUSDT, positions, orders, history, initialBalance } });
-  } catch(e) { console.error('saveState', e); }
+
+async function fetchKlines(){
+  try{
+    const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=100');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    klines = d.map(k=>({close:parseFloat(k[4])}));
+  }catch(e){ console.error('[Fetch] Klines error:', e); }
 }
 
-function initTradingView() {
-  new TradingView.widget({
-    autosize: true,
-    symbol: "BINANCE:BTCUSDT",
-    interval: "15",
-    timezone: "Etc/UTC",
-    theme: "dark",
-    style: "1",
-    locale: "en",
-    toolbar_bg: "#0f172a",
-    hide_top_toolbar: false,
-    hide_legend: false,
-    cont
+async function poll(){
+  console.log('[Poll] fetching...');
+  await Promise.all([fetchPrice(), fetchKlines()]);
+  updateIndicators();
+  checkOrders();
+  updateUI();
+  if(loading && price>0 && klines.length>0){
+    loading=false;
+    document.getElementById('loading').style.opacity='0';
+    setTimeout(()=>document.getElementById('loading').style.display='none',300);
+    console.log('[App] Loaded');
+  }
+}
+
+function updateIndicators(){
+  if(klines.length<21) return;
+  const closes = klines.map(k=>k.close);
+  const rsi = calcRSI(closes);
+  const sma9 = calcSMA(closes,9);
+  const sma21 = calcSMA(closes,21);
+  
+  document.getElementById('rsi').textContent = rsi?rsi.toFixed(1):'--';
+  document.getElementById('sma9').textContent = sma9?Math.round(sma9):'--';
+  document.getElementById('sma21').textContent = sma21?Math.round(sma21):'--';
+  
+  let signal='NEUTRAL', cls='';
+  if(sma9 && sma21){
+    if(sma9 > sma21){ signal='BULL'; cls='bull'; }
+    else { signal='BEAR'; cls='bear'; }
+    if(sma9Prev && sma21Prev){
+      if(sma9Prev <= sma21Prev && sma9 > sma21){ signal='GOLDEN CROSS'; cls='bull'; }
+      if(sma9Prev >= sma21Prev && sma9 < sma21){ signal='DEATH CROSS'; cls='bear'; }
+    }
+  }
+  if(rsi){
+    if(rsi<30){ signal='OVERSOLD'; cls='bull'; }
+    if(rsi>70){ signal='OVERBOUGHT'; cls='bear'; }
+  }
+  const sigEl = document.getElementById('signal');
+  sigEl.textContent = signal;
+  sigEl.className = cls;
+  sma9Prev = sma9; sma21Prev = sma21;
+}
+
+function updateUI(){
+  document.getElementById('btc-price').textContent = price ? '$' + fmt(price,0) : '--';
+  const ch = document.getElementById('btc-change');
+  if(prevPrice && price){
+    const pct = ((price-prevPrice)/prevPrice*100);
+    ch.textContent = (pct>=0?'+':'') + pct.toFixed(2) + '%';
+    ch.className = pct>=0 ? 'up' : 'down';
+  }
+  document.getElementById('bal-usdt').textContent = fmt(state.balance,2);
+  document.getElementById('bal-btc').textContent = fmt4(state.btc);
+  const equity = state.balance + state.btc * price;
+  document.getElementById('equity').textContent = price ? fmt(equity,2) : '--';
+  
+  document.getElementById('orders-count').textContent = state.orders.length;
+  const ordersList = document.getElementById('orders-list');
+  if(state.orders.length===0){
+    ordersList.innerHTML = '<div class="empty">No open orders</div>';
+  } else {
+    ordersList.innerHTML = state.orders.map(o=>`
+      <div class="row">
+        <div class="l"><span class="badge ${o.side.toLowerCase()}">${o.side}</span><span class="badge limit">LIMIT</span> $${fmt(o.price,0)}</div>
+        <div class="r">${o.side==='BUY'?fmt(o.usdt,2)+' USDT':fmt4(o.btc)+' BTC'}<br><a href="#" onclick="cancelOrder(${o.id});return false" style="color:var(--muted);font-size:10px">cancel</a></div>
+      </div>
+    `).join('');
+  }
+  
+  const tradesList = document.getElementById('trades-list');
+  if(state.trades.length===0){
+    tradesList.innerHTML = '<div class="empty">No trades yet</div>';
+  } else {
+    tradesList.innerHTML = state.trades.slice(0,20).map(t=>{
+      const time = new Date(t.time).toLocaleTimeString();
+      return `<div class="row">
+        <div class="l"><span class="badge ${t.side.toLowerCase()}">${t.side}</span> ${t.type}</div>
+        <div class="r">$${fmt(t.price,0)} • ${t.size?fmt4(t.size):''}<br><span style="color:var(--muted)">${time}</span></div>
+      </div>`;
+    }).join('');
+  }
+  
+  const tpEl = document.getElementById('tpsl-status');
+  if(state.tp || state.sl){
+    tpEl.textContent = `TP: ${state.tp? '$'+fmt(state.tp,0):'--'} • SL: ${state.sl? '$'+fmt(state.sl,0):'--'}`;
+    tpEl.style.color = 'var(--accent)';
+  } else {
+    tpEl.textContent = 'No TP/SL set';
+    tpEl.style.color = 'var(--muted)';
+  }
+}
+
+function executeBuy(usdtAmt, execPrice, type){
+  const fee = 0.001;
+  if(usdtAmt > state.balance + 0.01){ alert('Insufficient USDT'); return false; }
+  const btcBought = (usdtAmt * (1-fee)) / execPrice;
+  state.balance -= usdtAmt;
+  state.btc += btcBought;
+  state.trades.unshift({time:Date.now(), side:'BUY', price:execPrice, size:btcBought, usdt:usdtAmt, type});
+  console.log('[Trade] BUY', btcBought, '@', execPrice);
+  saveState(); updateUI(); return true;
+}
+
+function executeSell(btcAmt, execPrice, type){
+  const fee = 0.001;
+  if(btcAmt > state.btc + 0.0000001){ alert('Insufficient BTC'); return false; }
+  const usdtReceived = btcAmt * execPrice * (1-fee);
+  state.btc -= btcAmt;
+  state.balance += usdtReceived;
+  state.trades.unshift({time:Date.now(), side:'SELL', price:execPrice, size:btcAmt, usdt:usdtReceived, type});
+  console.log('[Trade] SELL', btcAmt, '@', execPrice);
+  saveState(); updateUI(); return true;
+}
+
+function checkOrders(){
+  if(!price) return;
+  // TP/SL
+  if(state.btc > 0.00001){
+    if(state.tp && price >= state.tp){
+      console.log('[TP] triggered at', price);
+      executeSell(state.btc, price, 'TP');
+      state.tp = null; saveState();
+    }
+    if(state.sl && price <= state.sl){
+      console.log('[SL] triggered at', price);
+      executeSell(state.btc, price, 'SL');
+      state.sl = null; saveState();
+    }
+  }
+  // Limit orders
+  state.orders = state.orders.filter(o=>{
+    if(o.side==='BUY' && price <= o.price){
+      console.log('[Order] Fill BUY limit', o.price);
+      executeBuy(o.usdt, o.price, 'LIMIT');
+      return false;
+    }
+    if(o.side==='SELL' && price >= o.price){
+      console.log('[Order] Fill SELL limit', o.price);
+      executeSell(o.btc, o.price, 'LIMIT');
+      return false;
+    }
+    return true;
+  });
+}
+
+function cancelOrder(id){
+  state.orders = state.orders.filter(o=>o.id!==id);
+  saveState(); updateUI();
+}
+window.cancelOrder = cancelOrder;
+
+function setSide(side){
+  tradeSide = side;
+  document.getElementById('btn-buy').classList.toggle('active', side==='BUY');
+  document.getElementById('btn-buy').classList.toggle('buy', side==='BUY');
+  document.getElementById('btn-sell').classList.toggle('active', side==='SELL');
+  document.getElementById('btn-sell').classList.toggle('sell', side==='SELL');
+  const btn = document.getElementById('execute');
+  btn.textContent = side + ' BTC';
+  btn.className = 'execute ' + (side==='BUY'?'buy':'sell');
+  document.getElementById('amount-label').textContent = side==='BUY' ? 'Amount (USDT)' : 'Amount (BTC)';
+  document.getElementById('amount-label2').textContent = side==='BUY' ? 'Amount (USDT)' : 'Amount (BTC)';
+  document.getElementById('amount').placeholder = side==='BUY' ? '0.00' : '0.0000';
+  document.getElementById('amount2').placeholder = side==='BUY' ? '0.00' : '0.0000';
+}
+
+function setType(type){
+  tradeType = type;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.type===type));
+  document.getElementById('market-panel').style.display = type==='market'?'block':'none';
+  document.getElementById('limit-panel').style.display = type==='limit'?'block':'none';
+}
+
+document.getElementById('btn-buy').onclick = ()=>setSide('BUY');
+document.getElementById('btn-sell').onclick = ()=>setSide('SELL');
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>setType(t.dataset.type));
+
+document.querySelectorAll('.pct button').forEach(b=>{
+  b.onclick = ()=>{
+    const p = parseFloat(b.dataset.p);
+    const isLimit = tradeType==='limit';
+    const input = isLimit ? d
